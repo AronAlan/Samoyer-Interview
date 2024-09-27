@@ -6,18 +6,24 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.samoyer.backend.common.ErrorCode;
 import com.samoyer.backend.constant.CommonConstant;
+import com.samoyer.backend.exception.BusinessException;
 import com.samoyer.backend.exception.ThrowUtils;
 import com.samoyer.backend.mapper.QuestionBankQuestionMapper;
 import com.samoyer.backend.model.dto.questionbankquestion.QuestionBankQuestionQueryRequest;
+import com.samoyer.backend.model.entity.Question;
+import com.samoyer.backend.model.entity.QuestionBank;
 import com.samoyer.backend.model.entity.QuestionBankQuestion;
 import com.samoyer.backend.model.entity.User;
 import com.samoyer.backend.model.vo.QuestionBankQuestionVO;
 import com.samoyer.backend.model.vo.UserVO;
 import com.samoyer.backend.service.QuestionBankQuestionService;
+import com.samoyer.backend.service.QuestionBankService;
+import com.samoyer.backend.service.QuestionService;
 import com.samoyer.backend.service.UserService;
 import com.samoyer.backend.utils.SqlUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.ObjectUtils;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
 import javax.annotation.Resource;
@@ -39,6 +45,13 @@ public class QuestionBankQuestionServiceImpl extends ServiceImpl<QuestionBankQue
     @Resource
     private UserService userService;
 
+    @Resource
+    @Lazy
+    private QuestionService questionService;
+
+    @Resource
+    private QuestionBankService questionBankService;
+
     /**
      * 校验数据
      *
@@ -48,19 +61,20 @@ public class QuestionBankQuestionServiceImpl extends ServiceImpl<QuestionBankQue
     @Override
     public void validQuestionBankQuestion(QuestionBankQuestion questionBankQuestion, boolean add) {
         ThrowUtils.throwIf(questionBankQuestion == null, ErrorCode.PARAMS_ERROR);
-        //不需要校验
-        /*// todo 从对象中取值
-        String title = questionBankQuestion.getTitle();
-        // 创建数据时，参数不能为空
-        if (add) {
-            // todo 补充校验规则
-            ThrowUtils.throwIf(StringUtils.isBlank(title), ErrorCode.PARAMS_ERROR);
+        //题目和题库必须存在
+        Long questionId = questionBankQuestion.getQuestionId();
+        if (questionId!=null){
+            Question question = questionService.getById(questionId);
+            ThrowUtils.throwIf(question==null,ErrorCode.NOT_FOUND_ERROR,"题目不存在");
         }
-        // 修改数据时，有参数则校验
-        // todo 补充校验规则
-        if (StringUtils.isNotBlank(title)) {
-            ThrowUtils.throwIf(title.length() > 80, ErrorCode.PARAMS_ERROR, "标题过长");
-        }*/
+
+        Long questionBankId = questionBankQuestion.getQuestionBankId();
+        if (questionBankId!=null) {
+            QuestionBank questionBank = questionBankService.getById(questionId);
+            ThrowUtils.throwIf(questionBank==null,ErrorCode.NOT_FOUND_ERROR,"题库不存在");
+
+        }
+
     }
 
     /**

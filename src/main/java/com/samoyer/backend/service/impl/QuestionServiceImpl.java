@@ -1,18 +1,26 @@
 package com.samoyer.backend.service.impl;
 
 import cn.hutool.core.collection.CollUtil;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.samoyer.backend.annotation.AuthCheck;
+import com.samoyer.backend.common.BaseResponse;
 import com.samoyer.backend.common.ErrorCode;
+import com.samoyer.backend.common.ResultUtils;
 import com.samoyer.backend.constant.CommonConstant;
+import com.samoyer.backend.constant.UserConstant;
 import com.samoyer.backend.exception.ThrowUtils;
 import com.samoyer.backend.mapper.QuestionMapper;
 import com.samoyer.backend.model.dto.question.QuestionQueryRequest;
 import com.samoyer.backend.model.entity.Question;
+import com.samoyer.backend.model.entity.QuestionBankQuestion;
 import com.samoyer.backend.model.entity.User;
 import com.samoyer.backend.model.vo.QuestionVO;
 import com.samoyer.backend.model.vo.UserVO;
+import com.samoyer.backend.service.QuestionBankQuestionService;
 import com.samoyer.backend.service.QuestionService;
 import com.samoyer.backend.service.UserService;
 import com.samoyer.backend.utils.SqlUtils;
@@ -20,6 +28,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.ObjectUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 
 import javax.annotation.Resource;
 import javax.servlet.http.HttpServletRequest;
@@ -39,6 +49,9 @@ public class QuestionServiceImpl extends ServiceImpl<QuestionMapper, Question> i
 
     @Resource
     private UserService userService;
+
+    @Resource
+    private QuestionBankQuestionService questionBankQuestionService;
 
     /**
      * 校验数据
@@ -217,6 +230,45 @@ public class QuestionServiceImpl extends ServiceImpl<QuestionMapper, Question> i
 
         questionVOPage.setRecords(questionVOList);
         return questionVOPage;
+    }
+
+    /**
+     * 分页获取题目列表（仅管理员可用）
+     *
+     * @param questionQueryRequest
+     * @return
+     */
+    @Override
+    public Page<Question> listQuestionByPage(QuestionQueryRequest questionQueryRequest) {
+        long current = questionQueryRequest.getCurrent();
+        long size = questionQueryRequest.getPageSize();
+
+        //题目表的查询条件
+        QueryWrapper<Question> queryWrapper = this.getQueryWrapper(questionQueryRequest);
+
+        //根据题库id查询题目列表
+        Long questionBankId = questionQueryRequest.getQuestionBankId();
+        if (questionBankId!=null){
+            LambdaQueryWrapper<QuestionBankQuestion> lambdaQueryWrapper = Wrappers.lambdaQuery(QuestionBankQuestion.class)
+                    //只查询题目ids，优化查询
+                    .select(QuestionBankQuestion::getQuestionId)
+                    .eq(QuestionBankQuestion::getQuestionBankId, questionBankId);
+            //查询到题库id下所有题目的ids
+            List<QuestionBankQuestion> questionList = questionBankQuestionService.list(lambdaQueryWrapper);
+            //题目ids不为空
+            if (CollUtil.isNotEmpty(questionList)) {
+                //取出题目id集合
+                Set<Long> questionIdSet=questionList.stream().map(QuestionBankQuestion::getQuestionId)
+                        .collect(Collectors.toSet());
+                //增加查询条件到queryWrapper
+                queryWrapper.in("id", questionIdSet);
+            }
+        }
+
+        // 查询数据库
+        Page<Question> questionPage = this.page(new Page<>(current, size),
+                queryWrapper);
+        return questionPage;
     }
 
 }

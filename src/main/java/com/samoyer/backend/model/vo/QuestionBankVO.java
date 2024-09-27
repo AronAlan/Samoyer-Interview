@@ -1,5 +1,7 @@
 package com.samoyer.backend.model.vo;
 
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.samoyer.backend.model.entity.Question;
 import com.samoyer.backend.model.entity.QuestionBank;
 import lombok.Data;
 import org.springframework.beans.BeanUtils;
@@ -54,6 +56,11 @@ public class QuestionBankVO implements Serializable {
      * 创建的用户信息
      */
     private UserVO user;
+
+    /**
+     * 题库下关联的题目列表（分页）
+     */
+    private Page<Question> questionPage;
 
     /**
      * 封装类转对象

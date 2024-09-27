@@ -3,6 +3,7 @@ package com.samoyer.backend.service;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.IService;
+import com.samoyer.backend.common.BaseResponse;
 import com.samoyer.backend.model.dto.question.QuestionQueryRequest;
 import com.samoyer.backend.model.entity.Question;
 import com.samoyer.backend.model.vo.QuestionVO;
@@ -50,4 +51,12 @@ public interface QuestionService extends IService<Question> {
      * @return
      */
     Page<QuestionVO> getQuestionVOPage(Page<Question> questionPage, HttpServletRequest request);
+
+    /**
+     * 分页获取题目列表（仅管理员可用）
+     *
+     * @param questionQueryRequest
+     * @return
+     */
+    Page<Question> listQuestionByPage(QuestionQueryRequest questionQueryRequest);
 }
