@@ -10,13 +10,14 @@ import java.util.Date;
 import java.util.List;
 
 /**
- * 题目视图
+ * 题目简单视图
+ * 题目列表页，不返回给前端用户信息，答案等更详细的信息
  *
  * @author Samoyer
 
  */
 @Data
-public class QuestionVO implements Serializable {
+public class QuestionSimpleVO implements Serializable {
 
     /**
      * id
@@ -27,16 +28,6 @@ public class QuestionVO implements Serializable {
      * 标题
      */
     private String title;
-
-    /**
-     * 内容
-     */
-    private String content;
-
-    /**
-     * 所属题库
-     */
-    private List<String> questionBankTitles;
 
     /**
      * 创建用户 id
@@ -59,22 +50,12 @@ public class QuestionVO implements Serializable {
     private List<String> tagList;
 
     /**
-     * 推荐答案
-     */
-    private String answer;
-
-    /**
-     * 创建题目的用户信息
-     */
-    private UserVO user;
-
-    /**
      * 封装类转对象
      *
      * @param questionVO
      * @return
      */
-    public static Question voToObj(QuestionVO questionVO) {
+    public static Question voToObj(QuestionSimpleVO questionVO) {
         if (questionVO == null) {
             return null;
         }
@@ -91,11 +72,11 @@ public class QuestionVO implements Serializable {
      * @param question
      * @return
      */
-    public static QuestionVO objToVo(Question question) {
+    public static QuestionSimpleVO objToVo(Question question) {
         if (question == null) {
             return null;
         }
-        QuestionVO questionVO = new QuestionVO();
+        QuestionSimpleVO questionVO = new QuestionSimpleVO();
         BeanUtils.copyProperties(question, questionVO);
         questionVO.setTagList(JSONUtil.toList(question.getTags(), String.class));
         return questionVO;

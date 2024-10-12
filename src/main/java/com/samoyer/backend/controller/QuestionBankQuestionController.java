@@ -1,5 +1,6 @@
 package com.samoyer.backend.controller;
 
+import co.elastic.clients.elasticsearch.xpack.usage.Base;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -11,16 +12,11 @@ import com.samoyer.backend.common.ResultUtils;
 import com.samoyer.backend.constant.UserConstant;
 import com.samoyer.backend.exception.BusinessException;
 import com.samoyer.backend.exception.ThrowUtils;
-import com.samoyer.backend.model.dto.questionbankquestion.QuestionBankQuestionAddRequest;
-import com.samoyer.backend.model.dto.questionbankquestion.QuestionBankQuestionQueryRequest;
-import com.samoyer.backend.model.dto.questionbankquestion.QuestionBankQuestionRemoveRequest;
-import com.samoyer.backend.model.dto.questionbankquestion.QuestionBankQuestionUpdateRequest;
+import com.samoyer.backend.model.dto.questionbankquestion.*;
 import com.samoyer.backend.model.entity.QuestionBankQuestion;
 import com.samoyer.backend.model.entity.User;
 import com.samoyer.backend.model.vo.QuestionBankQuestionVO;
 import com.samoyer.backend.service.QuestionBankQuestionService;
-import com.samoyer.backend.service.QuestionBankService;
-import com.samoyer.backend.service.QuestionService;
 import com.samoyer.backend.service.UserService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
@@ -28,6 +24,7 @@ import org.springframework.web.bind.annotation.*;
 
 import javax.annotation.Resource;
 import javax.servlet.http.HttpServletRequest;
+import java.util.List;
 
 /**
  * 题库题目关联接口
@@ -230,5 +227,48 @@ public class QuestionBankQuestionController {
         return ResultUtils.success(res);
     }
 
+    /**
+     * 批量向题库中添加题目（关联）
+     *
+     * @param questionBankQuestionBatchAddRequest
+     * @param request
+     * @return
+     */
+    @PostMapping("/add/batch")
+    @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
+    public BaseResponse<Boolean> batchAddQuestionToBank(@RequestBody QuestionBankQuestionBatchAddRequest questionBankQuestionBatchAddRequest,
+                                                        HttpServletRequest request) {
+        //参数校验
+        ThrowUtils.throwIf(questionBankQuestionBatchAddRequest == null, ErrorCode.PARAMS_ERROR);
+        User loginUser = userService.getLoginUser(request);
+        //题目列表
+        List<Long> questionIdList = questionBankQuestionBatchAddRequest.getQuestionIdList();
+        //题库id
+        Long questionBankId = questionBankQuestionBatchAddRequest.getQuestionBankId();
+        //批量添加关联
+        questionBankQuestionService.batchAddQuestionToBank(questionIdList, questionBankId, loginUser);
+        return ResultUtils.success(true);
+    }
 
+    /**
+     * 批量从题库中删除题目（关联）
+     *
+     * @param questionBankQuestionBatchRemoveRequest
+     * @param request
+     * @return
+     */
+    @PostMapping("/remove/batch")
+    @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
+    public BaseResponse<Boolean> batchRemoveQuestionFromBank(@RequestBody QuestionBankQuestionBatchRemoveRequest questionBankQuestionBatchRemoveRequest,
+                                                             HttpServletRequest request) {
+        //参数校验
+        ThrowUtils.throwIf(questionBankQuestionBatchRemoveRequest == null, ErrorCode.PARAMS_ERROR);
+        //题目列表
+        List<Long> questionIdList = questionBankQuestionBatchRemoveRequest.getQuestionIdList();
+        //题库id
+        Long questionBankId = questionBankQuestionBatchRemoveRequest.getQuestionBankId();
+        //批量移除关联
+        questionBankQuestionService.batchRemoveQuestionFromBank(questionIdList, questionBankId);
+        return ResultUtils.success(true);
+    }
 }

@@ -1,42 +1,56 @@
 package com.samoyer.backend.service.impl;
 
 import cn.hutool.core.collection.CollUtil;
+import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
-import com.samoyer.backend.annotation.AuthCheck;
-import com.samoyer.backend.common.BaseResponse;
 import com.samoyer.backend.common.ErrorCode;
-import com.samoyer.backend.common.ResultUtils;
 import com.samoyer.backend.constant.CommonConstant;
-import com.samoyer.backend.constant.UserConstant;
 import com.samoyer.backend.exception.ThrowUtils;
 import com.samoyer.backend.mapper.QuestionMapper;
+import com.samoyer.backend.model.dto.question.QuestionEsDTO;
 import com.samoyer.backend.model.dto.question.QuestionQueryRequest;
 import com.samoyer.backend.model.entity.Question;
+import com.samoyer.backend.model.entity.QuestionBank;
 import com.samoyer.backend.model.entity.QuestionBankQuestion;
 import com.samoyer.backend.model.entity.User;
+import com.samoyer.backend.model.vo.QuestionSimpleVO;
 import com.samoyer.backend.model.vo.QuestionVO;
 import com.samoyer.backend.model.vo.UserVO;
 import com.samoyer.backend.service.QuestionBankQuestionService;
+import com.samoyer.backend.service.QuestionBankService;
 import com.samoyer.backend.service.QuestionService;
 import com.samoyer.backend.service.UserService;
 import com.samoyer.backend.utils.SqlUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.ObjectUtils;
 import org.apache.commons.lang3.StringUtils;
+import org.elasticsearch.index.query.BoolQueryBuilder;
+import org.elasticsearch.index.query.QueryBuilders;
+import org.elasticsearch.search.sort.SortBuilder;
+import org.elasticsearch.search.sort.SortBuilders;
+import org.elasticsearch.search.sort.SortOrder;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.elasticsearch.core.ElasticsearchRestTemplate;
+import org.springframework.data.elasticsearch.core.SearchHit;
+import org.springframework.data.elasticsearch.core.SearchHits;
+import org.springframework.data.elasticsearch.core.query.NativeSearchQuery;
+import org.springframework.data.elasticsearch.core.query.NativeSearchQueryBuilder;
 import org.springframework.stereotype.Service;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.transaction.annotation.Transactional;
 
 import javax.annotation.Resource;
 import javax.servlet.http.HttpServletRequest;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
+
+import static com.fasterxml.jackson.databind.type.LogicalType.Collection;
 
 /**
  * 题目服务实现
@@ -52,6 +66,12 @@ public class QuestionServiceImpl extends ServiceImpl<QuestionMapper, Question> i
 
     @Resource
     private QuestionBankQuestionService questionBankQuestionService;
+
+    @Resource
+    private QuestionBankService questionBankService;
+
+    @Resource
+    private ElasticsearchRestTemplate elasticsearchRestTemplate;
 
     /**
      * 校验数据
@@ -189,32 +209,11 @@ public class QuestionServiceImpl extends ServiceImpl<QuestionMapper, Question> i
             return QuestionVO.objToVo(question);
         }).collect(Collectors.toList());
 
-        // todo 可以根据需要为封装对象补充值，不需要的内容可以删除
-        // region 可选
+        // 可以根据需要为封装对象补充值，不需要的内容可以删除
         // 1. 关联查询用户信息
         Set<Long> userIdSet = questionList.stream().map(Question::getUserId).collect(Collectors.toSet());
         Map<Long, List<User>> userIdUserListMap = userService.listByIds(userIdSet).stream()
                 .collect(Collectors.groupingBy(User::getId));
-        /*// 2. 已登录，获取用户点赞、收藏状态
-        Map<Long, Boolean> questionIdHasThumbMap = new HashMap<>();
-        Map<Long, Boolean> questionIdHasFavourMap = new HashMap<>();
-        User loginUser = userService.getLoginUserPermitNull(request);
-        if (loginUser != null) {
-            Set<Long> questionIdSet = questionList.stream().map(Question::getId).collect(Collectors.toSet());
-            loginUser = userService.getLoginUser(request);
-            // 获取点赞
-            QueryWrapper<QuestionThumb> questionThumbQueryWrapper = new QueryWrapper<>();
-            questionThumbQueryWrapper.in("questionId", questionIdSet);
-            questionThumbQueryWrapper.eq("userId", loginUser.getId());
-            List<QuestionThumb> questionQuestionThumbList = questionThumbMapper.selectList(questionThumbQueryWrapper);
-            questionQuestionThumbList.forEach(questionQuestionThumb -> questionIdHasThumbMap.put(questionQuestionThumb.getQuestionId(), true));
-            // 获取收藏
-            QueryWrapper<QuestionFavour> questionFavourQueryWrapper = new QueryWrapper<>();
-            questionFavourQueryWrapper.in("questionId", questionIdSet);
-            questionFavourQueryWrapper.eq("userId", loginUser.getId());
-            List<QuestionFavour> questionFavourList = questionFavourMapper.selectList(questionFavourQueryWrapper);
-            questionFavourList.forEach(questionFavour -> questionIdHasFavourMap.put(questionFavour.getQuestionId(), true));
-        }*/
         // 填充信息
         questionVOList.forEach(questionVO -> {
             Long userId = questionVO.getUserId();
@@ -223,17 +222,68 @@ public class QuestionServiceImpl extends ServiceImpl<QuestionMapper, Question> i
                 user = userIdUserListMap.get(userId).get(0);
             }
             questionVO.setUser(userService.getUserVO(user));
-            /*questionVO.setHasThumb(questionIdHasThumbMap.getOrDefault(questionVO.getId(), false));
-            questionVO.setHasFavour(questionIdHasFavourMap.getOrDefault(questionVO.getId(), false));*/
         });
-        // endregion
+
+        // 2.关联查询题目所属的题库
+        Set<Long> questionIdSet = questionList.stream().map(Question::getId).collect(Collectors.toSet());
+        // 根据questionId查询题库题目关联
+        List<QuestionBankQuestion> questionBankQuestions = questionBankQuestionService.list(
+                Wrappers.<QuestionBankQuestion>lambdaQuery()
+                        .in(QuestionBankQuestion::getQuestionId, questionIdSet)
+        );
+        // 题目对应（多个）题库,将结果转换为Map<questionId, List<questionBankId>>
+        Map<Long, List<Long>> questionIdToBankIdsMap = questionBankQuestions.stream()
+                .collect(Collectors.groupingBy(
+                        QuestionBankQuestion::getQuestionId,
+                        Collectors.mapping(QuestionBankQuestion::getQuestionBankId, Collectors.toList())
+                ));
+        //questionIdToBankIdsMap中的value是questionBankIds，查询questionBank表中对应的title，并创建为Map<Long, List<String>>
+        Map<Long, List<String>> questionBankTitleMap = questionIdToBankIdsMap.entrySet().stream().collect(Collectors.toMap(
+                Map.Entry::getKey,
+                entry -> entry.getValue().stream().map(questionBankId -> {
+                    QuestionBank questionBank = questionBankService.getById(questionBankId);
+                    return questionBank.getTitle();
+                }).collect(Collectors.toList())
+        ));
+
+        // 填充信息
+        questionVOList.forEach(questionVO -> {
+            Long questionId = questionVO.getId();
+            List<String> questionBankTitles = null;
+            if (questionBankTitleMap.containsKey(questionId)) {
+                questionBankTitles = questionBankTitleMap.get(questionId);
+            }
+            questionVO.setQuestionBankTitles(questionBankTitles);
+        });
 
         questionVOPage.setRecords(questionVOList);
         return questionVOPage;
     }
 
     /**
-     * 分页获取题目列表（仅管理员可用）
+     * 分页获取题目简化版封装
+     *
+     * @param questionPage
+     * @param request
+     * @return
+     */
+    @Override
+    public Page<QuestionSimpleVO> getQuestionSimpleVOPage(Page<Question> questionPage, HttpServletRequest request) {
+        List<Question> questionList = questionPage.getRecords();
+        Page<QuestionSimpleVO> questionSimpleVOPage = new Page<>(questionPage.getCurrent(), questionPage.getSize(), questionPage.getTotal());
+        if (CollUtil.isEmpty(questionList)) {
+            return questionSimpleVOPage;
+        }
+        // 对象列表 => 封装对象列表
+        List<QuestionSimpleVO> questionVOList = questionList.stream().map(question -> {
+            return QuestionSimpleVO.objToVo(question);
+        }).collect(Collectors.toList());
+        questionSimpleVOPage.setRecords(questionVOList);
+        return questionSimpleVOPage;
+    }
+
+    /**
+     * 分页获取题目列表
      *
      * @param questionQueryRequest
      * @return
@@ -248,20 +298,25 @@ public class QuestionServiceImpl extends ServiceImpl<QuestionMapper, Question> i
 
         //根据题库id查询题目列表
         Long questionBankId = questionQueryRequest.getQuestionBankId();
-        if (questionBankId!=null){
+        if (questionBankId != null) {
             LambdaQueryWrapper<QuestionBankQuestion> lambdaQueryWrapper = Wrappers.lambdaQuery(QuestionBankQuestion.class)
                     //只查询题目ids，优化查询
                     .select(QuestionBankQuestion::getQuestionId)
                     .eq(QuestionBankQuestion::getQuestionBankId, questionBankId);
             //查询到题库id下所有题目的ids
             List<QuestionBankQuestion> questionList = questionBankQuestionService.list(lambdaQueryWrapper);
-            //题目ids不为空
+            //题库下的题目不为空
             if (CollUtil.isNotEmpty(questionList)) {
                 //取出题目id集合
-                Set<Long> questionIdSet=questionList.stream().map(QuestionBankQuestion::getQuestionId)
+                Set<Long> questionIdSet = questionList.stream().map(QuestionBankQuestion::getQuestionId)
                         .collect(Collectors.toSet());
                 //增加查询条件到queryWrapper
                 queryWrapper.in("id", questionIdSet);
+            } else {
+                //如果题库为空的话，返回空列表
+                //逻辑是根据题库id查询题目ids，然后返回题库下的所有题目
+                //但是如果不返回空列表的话，就变成下面查数据库时的查询条件（为空）就没有限制了，也就全量查询了
+                return new Page<>(current, size, 0);
             }
         }
 
@@ -269,6 +324,117 @@ public class QuestionServiceImpl extends ServiceImpl<QuestionMapper, Question> i
         Page<Question> questionPage = this.page(new Page<>(current, size),
                 queryWrapper);
         return questionPage;
+    }
+
+    /**
+     * 从ES中分页查询题目
+     * 使用ElasticsearchRestTemplate
+     *
+     * @param questionQueryRequest
+     * @return
+     */
+    @Override
+    public Page<Question> searchFromEs(QuestionQueryRequest questionQueryRequest) {
+        Long id = questionQueryRequest.getId();
+        Long notId = questionQueryRequest.getNotId();
+        String searchText = questionQueryRequest.getSearchText();
+        List<String> tags = questionQueryRequest.getTags();
+//        Long questionBankId = questionQueryRequest.getQuestionBankId();
+        Long userId = questionQueryRequest.getUserId();
+        //ES的起始页为0，需要减一
+        int current = questionQueryRequest.getCurrent() - 1;
+        int pageSize = questionQueryRequest.getPageSize();
+        String sortField = questionQueryRequest.getSortField();
+        String sortOrder = questionQueryRequest.getSortOrder();
+
+        //构造查询条件
+        BoolQueryBuilder boolQueryBuilder = QueryBuilders.boolQuery();
+
+        //过滤.过滤出符合termQuery条件的数据
+        boolQueryBuilder.filter(QueryBuilders.termQuery("isDelete", 0));
+        if (id != null) {
+            boolQueryBuilder.filter(QueryBuilders.termQuery("id", id));
+        }
+        if (notId != null) {
+            boolQueryBuilder.mustNot(QueryBuilders.termQuery("id", notId));
+        }
+        if (userId != null) {
+            boolQueryBuilder.filter(QueryBuilders.termQuery("userId", userId));
+        }
+        //题目与题库关联不在题目表中，暂不设置根据questionBankId查询
+//        if (questionBankId != null) {
+//            boolQueryBuilder.filter(QueryBuilders.termQuery("questionBankId", questionBankId));
+//        }
+
+        //必须包含所有查询的标签
+        if (CollUtil.isNotEmpty(tags)) {
+            for (String tag : tags) {
+                boolQueryBuilder.filter(QueryBuilders.termQuery("tags", tag));
+            }
+        }
+
+        //按关键词检索
+        if (StrUtil.isNotBlank(searchText)) {
+            boolQueryBuilder.should(QueryBuilders.matchQuery("title", searchText));
+            boolQueryBuilder.should(QueryBuilders.matchQuery("content", searchText));
+            boolQueryBuilder.should(QueryBuilders.matchQuery("answer", searchText));
+            //至少有一个should匹配
+            boolQueryBuilder.minimumShouldMatch(1);
+        }
+
+        //排序
+        SortBuilder<?> sortBuilder = SortBuilders.scoreSort();
+        if (StrUtil.isNotBlank(sortField)) {
+            sortBuilder = SortBuilders.fieldSort(sortField);
+            sortBuilder.order(CommonConstant.SORT_ORDER_ASC.equals(sortOrder) ? SortOrder.ASC : SortOrder.DESC);
+        }
+
+        //分页
+        PageRequest pageRequest = PageRequest.of(current, pageSize);
+        //构造查询
+        NativeSearchQuery searchQuery = new NativeSearchQueryBuilder()
+                .withQuery(boolQueryBuilder)
+                .withPageable(pageRequest)
+                .withSorts(sortBuilder)
+                .build();
+        SearchHits<QuestionEsDTO> searchHits = elasticsearchRestTemplate.search(searchQuery, QuestionEsDTO.class);
+
+        //复用mysql的分页对象，封装返回结果
+        Page<Question> page = new Page<>();
+        page.setTotal(searchHits.getTotalHits());
+        List<Question> resourceList = new ArrayList<>();
+        if (searchHits.hasSearchHits()) {
+            List<SearchHit<QuestionEsDTO>> searchHitList = searchHits.getSearchHits();
+            for (SearchHit<QuestionEsDTO> questionEsDtoSearchHit : searchHitList) {
+                resourceList.add(QuestionEsDTO.dtoToObj(questionEsDtoSearchHit.getContent()));
+            }
+        }
+
+        page.setRecords(resourceList);
+        return page;
+    }
+
+    /**
+     * 批量删除题目 并移除相应的题库题目关联
+     *
+     * @param questionIdList
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void batchDeleteQuestions(List<Long> questionIdList) {
+        //参数校验
+        ThrowUtils.throwIf(CollUtil.isEmpty(questionIdList), ErrorCode.PARAMS_ERROR, "批量删除题目列表为空");
+        for (Long questionId : questionIdList) {
+            //删除题目
+            boolean result = this.removeById(questionId);
+            ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR, "删除题目失败");
+
+            //移除题库题目关联
+            LambdaQueryWrapper<QuestionBankQuestion> lambdaQueryWrapper = Wrappers.lambdaQuery(QuestionBankQuestion.class)
+                    .eq(QuestionBankQuestion::getQuestionId, questionId);
+            result = questionBankQuestionService.remove(lambdaQueryWrapper);
+            ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR, "移除题库题目关联失败");
+        }
     }
 
 }

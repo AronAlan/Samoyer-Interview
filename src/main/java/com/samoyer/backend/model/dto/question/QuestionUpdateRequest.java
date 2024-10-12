@@ -32,7 +32,7 @@ public class QuestionUpdateRequest implements Serializable {
     /**
      * 标签列表
      */
-    private List<String> tags;
+    private List<String> tagsList;
 
     /**
      * 推荐答案
