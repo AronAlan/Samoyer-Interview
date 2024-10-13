@@ -85,4 +85,9 @@ public interface QuestionService extends IService<Question> {
      * @param questionIdList
      */
     void batchDeleteQuestions(List<Long> questionIdList);
+
+    /**
+     * 用于删除或增加时主动增量同步到ES
+     */
+    void incrementalEs();
 }

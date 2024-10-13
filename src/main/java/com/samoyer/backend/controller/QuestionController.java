@@ -11,6 +11,7 @@ import com.samoyer.backend.common.ResultUtils;
 import com.samoyer.backend.constant.UserConstant;
 import com.samoyer.backend.exception.BusinessException;
 import com.samoyer.backend.exception.ThrowUtils;
+import com.samoyer.backend.job.cycle.IncSyncQuestionToEs;
 import com.samoyer.backend.model.dto.question.QuestionAddRequest;
 import com.samoyer.backend.model.dto.question.QuestionEditRequest;
 import com.samoyer.backend.model.dto.question.QuestionQueryRequest;
@@ -80,6 +81,8 @@ public class QuestionController {
         ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR);
         // 返回新写入的数据 id
         long newQuestionId = question.getId();
+        //主动增量同步到ES
+        questionService.incrementalEs();
         return ResultUtils.success(newQuestionId);
     }
 
@@ -111,6 +114,8 @@ public class QuestionController {
         ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR);
         // 删除题库题目关联表中所有questionId为id的数据
         questionBankQuestionService.removeByQuestionId(id);
+        //主动增量同步到ES
+        questionService.incrementalEs();
         return ResultUtils.success(true);
     }
 
@@ -146,6 +151,8 @@ public class QuestionController {
         // 操作数据库
         boolean result = questionService.updateById(question);
         ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR);
+        //主动增量同步到ES
+        questionService.incrementalEs();
         return ResultUtils.success(true);
     }
 
@@ -283,6 +290,8 @@ public class QuestionController {
         // 操作数据库
         boolean result = questionService.updateById(question);
         ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR);
+        //主动增量同步到ES
+        questionService.incrementalEs();
         return ResultUtils.success(true);
     }
 
@@ -340,6 +349,8 @@ public class QuestionController {
         //参数校验
         ThrowUtils.throwIf(questionBatchDeleteRequest==null,ErrorCode.PARAMS_ERROR);
         questionService.batchDeleteQuestions(questionBatchDeleteRequest.getQuestionIdList());
+        //主动增量同步到ES
+        questionService.incrementalEs();
         return ResultUtils.success(true);
     }
 

@@ -9,6 +9,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.samoyer.backend.common.ErrorCode;
 import com.samoyer.backend.constant.CommonConstant;
+import com.samoyer.backend.esdao.QuestionEsDao;
 import com.samoyer.backend.exception.ThrowUtils;
 import com.samoyer.backend.mapper.QuestionMapper;
 import com.samoyer.backend.model.dto.question.QuestionEsDTO;
@@ -44,10 +45,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import javax.annotation.Resource;
 import javax.servlet.http.HttpServletRequest;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.stream.Collectors;
 
 import static com.fasterxml.jackson.databind.type.LogicalType.Collection;
@@ -72,6 +70,12 @@ public class QuestionServiceImpl extends ServiceImpl<QuestionMapper, Question> i
 
     @Resource
     private ElasticsearchRestTemplate elasticsearchRestTemplate;
+
+    @Resource
+    private QuestionMapper questionMapper;
+
+    @Resource
+    private QuestionEsDao questionEsDao;
 
     /**
      * 校验数据
@@ -425,6 +429,7 @@ public class QuestionServiceImpl extends ServiceImpl<QuestionMapper, Question> i
         //参数校验
         ThrowUtils.throwIf(CollUtil.isEmpty(questionIdList), ErrorCode.PARAMS_ERROR, "批量删除题目列表为空");
         for (Long questionId : questionIdList) {
+            // TODO 批量删除题目时候
             //删除题目
             boolean result = this.removeById(questionId);
             ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR, "删除题目失败");
@@ -435,6 +440,33 @@ public class QuestionServiceImpl extends ServiceImpl<QuestionMapper, Question> i
             result = questionBankQuestionService.remove(lambdaQueryWrapper);
             ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR, "移除题库题目关联失败");
         }
+    }
+
+    /**
+     * 用于删除或增加时主动增量同步到ES
+     */
+    @Override
+    public void incrementalEs() {
+        //查询过去5分钟内的数据
+        long FIVE_MINUTES = 5 * 60 * 1000L;
+        Date theFiveMinutes = new Date(new Date().getTime() - FIVE_MINUTES);
+        List<Question> questionList = questionMapper.listQuestionWithDelete(theFiveMinutes);
+        if (CollUtil.isEmpty(questionList)) {
+            log.info("数据库中近五分钟无更新题目");
+            return;
+        }
+
+        List<QuestionEsDTO> questionEsDTOList = questionList.stream()
+                .map(QuestionEsDTO::objToDto)
+                .collect(Collectors.toList());
+        final int pageSize = 500;
+        int total = questionEsDTOList.size();
+        log.info("近五分钟，有{}条数据更新，开始增量同步到ES", total);
+        for (int i = 0; i < total; i += pageSize) {
+            int end = Math.min(i + pageSize, total);
+            questionEsDao.saveAll(questionEsDTOList.subList(i, end));
+        }
+        log.info("增量同步到ES完成");
     }
 
 }

@@ -26,6 +26,8 @@ import com.samoyer.backend.utils.SqlUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.ObjectUtils;
 import org.springframework.context.annotation.Lazy;
+import org.springframework.dao.DataAccessException;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -66,15 +68,15 @@ public class QuestionBankQuestionServiceImpl extends ServiceImpl<QuestionBankQue
         ThrowUtils.throwIf(questionBankQuestion == null, ErrorCode.PARAMS_ERROR);
         //题目和题库必须存在
         Long questionId = questionBankQuestion.getQuestionId();
-        if (questionId!=null){
+        if (questionId != null) {
             Question question = questionService.getById(questionId);
-            ThrowUtils.throwIf(question==null,ErrorCode.NOT_FOUND_ERROR,"题目不存在");
+            ThrowUtils.throwIf(question == null, ErrorCode.NOT_FOUND_ERROR, "题目不存在");
         }
 
         Long questionBankId = questionBankQuestion.getQuestionBankId();
-        if (questionBankId!=null) {
+        if (questionBankId != null) {
             QuestionBank questionBank = questionBankService.getById(questionBankId);
-            ThrowUtils.throwIf(questionBank==null,ErrorCode.NOT_FOUND_ERROR,"题库不存在");
+            ThrowUtils.throwIf(questionBank == null, ErrorCode.NOT_FOUND_ERROR, "题库不存在");
 
         }
 
@@ -122,8 +124,16 @@ public class QuestionBankQuestionServiceImpl extends ServiceImpl<QuestionBankQue
      */
     @Override
     public boolean removeByQuestionId(long questionId) {
-        boolean result=this.remove(Wrappers.<QuestionBankQuestion>lambdaQuery().eq(QuestionBankQuestion::getQuestionId, questionId));
-        ThrowUtils.throwIf(!result,ErrorCode.OPERATION_ERROR,"删除题库题目关联失败");
+        //1.查询题目是否与某题库关联
+        LambdaQueryWrapper<QuestionBankQuestion> lambdaQueryWrapper = Wrappers.lambdaQuery(QuestionBankQuestion.class)
+                .eq(QuestionBankQuestion::getQuestionId, questionId);
+        List<QuestionBankQuestion> questionBankQuestionList = this.list(lambdaQueryWrapper);
+        //如果题目未与任何题库关联，直接成功删除题目就行了
+        if (CollUtil.isEmpty(questionBankQuestionList)){
+            return true;
+        }
+        boolean result = this.remove(lambdaQueryWrapper);
+        ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR, "删除题库题目关联失败");
         return true;
     }
 
@@ -195,6 +205,7 @@ public class QuestionBankQuestionServiceImpl extends ServiceImpl<QuestionBankQue
 
     /**
      * 批量向题库中添加题目（关联）
+     *
      * @param questionIdList
      * @param questionBankId
      * @param loginUser
@@ -203,19 +214,35 @@ public class QuestionBankQuestionServiceImpl extends ServiceImpl<QuestionBankQue
     @Transactional(rollbackFor = Exception.class)
     public void batchAddQuestionToBank(List<Long> questionIdList, Long questionBankId, User loginUser) {
         //参数校验
-        ThrowUtils.throwIf(CollUtil.isEmpty(questionIdList),ErrorCode.PARAMS_ERROR,"题目列表为空");
-        ThrowUtils.throwIf(questionBankId==null||questionBankId<=0,ErrorCode.PARAMS_ERROR,"题库id非法");
-        ThrowUtils.throwIf(loginUser==null,ErrorCode.NOT_LOGIN_ERROR);
+        ThrowUtils.throwIf(CollUtil.isEmpty(questionIdList), ErrorCode.PARAMS_ERROR, "题目列表为空");
+        ThrowUtils.throwIf(questionBankId == null || questionBankId <= 0, ErrorCode.PARAMS_ERROR, "题库id非法");
+        ThrowUtils.throwIf(loginUser == null, ErrorCode.NOT_LOGIN_ERROR);
         //校验题目id是否存在
         List<Question> questionList = questionService.listByIds(questionIdList);
+        //合法的questionIdList
         List<Long> validQuestionIdList = questionList.stream()
                 .map(Question::getId)
                 .collect(Collectors.toList());
-        ThrowUtils.throwIf(validQuestionIdList.size()!=questionIdList.size(),ErrorCode.PARAMS_ERROR,"题目请求列表中存在不合法的题目id");
-        ThrowUtils.throwIf(CollUtil.isEmpty(validQuestionIdList),ErrorCode.PARAMS_ERROR,"合法的题目列表为空");
+        ThrowUtils.throwIf(validQuestionIdList.size() != questionIdList.size(), ErrorCode.PARAMS_ERROR, "题目请求列表中存在不合法的题目id");
+        ThrowUtils.throwIf(CollUtil.isEmpty(validQuestionIdList), ErrorCode.PARAMS_ERROR, "合法的题目列表为空");
         //检查题库是否存在
         QuestionBank questionBank = questionBankService.getById(questionBankId);
-        ThrowUtils.throwIf(questionBank==null,ErrorCode.NOT_FOUND_ERROR,"题库不存在");
+        ThrowUtils.throwIf(questionBank == null, ErrorCode.NOT_FOUND_ERROR, "题库不存在");
+
+        //检查请求添加的题目列表中，哪些还不存在于题库中。为防止重复添加题目到题库中
+        LambdaQueryWrapper<QuestionBankQuestion> lambdaQueryWrapper = Wrappers.lambdaQuery(QuestionBankQuestion.class)
+                .eq(QuestionBankQuestion::getQuestionBankId, questionBankId)
+                .in(QuestionBankQuestion::getQuestionId, validQuestionIdList);
+        //已经存在于此题库中的题目列表
+        List<QuestionBankQuestion> existQustionList = this.list(lambdaQueryWrapper);
+        //转为questionIdSet
+        Set<Long> existQustionIdSet = existQustionList.stream()
+                .map(QuestionBankQuestion::getQuestionId)
+                .collect(Collectors.toSet());
+        //已经存在于题库中的题目，不用再次添加。过滤一下
+        validQuestionIdList = validQuestionIdList.stream().filter(questionId -> {
+            return !existQustionIdSet.contains(questionId);
+        }).collect(Collectors.toList());
 
         //执行批量添加
         for (Long questionId : validQuestionIdList) {
@@ -223,13 +250,30 @@ public class QuestionBankQuestionServiceImpl extends ServiceImpl<QuestionBankQue
             questionBankQuestion.setQuestionBankId(questionBankId);
             questionBankQuestion.setQuestionId(questionId);
             questionBankQuestion.setUserId(loginUser.getId());
-            boolean result = this.save(questionBankQuestion);
-            ThrowUtils.throwIf(!result,ErrorCode.OPERATION_ERROR,"向题库中批量添加题目失败");
+            //执行添加，并捕获特殊异常
+            try {
+                boolean result = this.save(questionBankQuestion);
+                ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR, "向题库中批量添加题目失败");
+            } catch (DataIntegrityViolationException e) {
+                log.error("数据库唯一键冲突或违反其他完整性约束，题目 id: {}, 题库 id: {}, 错误信息: {}",
+                        questionId, questionBankId, e.getMessage());
+                throw new BusinessException(ErrorCode.OPERATION_ERROR, "题目已存在于该题库，无法重复添加");
+            } catch (DataAccessException e) {
+                log.error("数据库连接问题、事务问题等导致操作失败，题目 id: {}, 题库 id: {}, 错误信息: {}",
+                        questionId, questionBankId, e.getMessage());
+                throw new BusinessException(ErrorCode.OPERATION_ERROR, "数据库操作失败");
+            } catch (Exception e) {
+                // 捕获其他异常，做通用处理
+                log.error("添加题目到题库时发生未知错误，题目 id: {}, 题库 id: {}, 错误信息: {}",
+                        questionId, questionBankId, e.getMessage());
+                throw new BusinessException(ErrorCode.OPERATION_ERROR, "向题库添加题目失败");
+            }
         }
     }
 
     /**
      * 批量从题库中移除题目（关联）
+     *
      * @param questionIdList
      * @param questionBankId
      */
@@ -237,17 +281,32 @@ public class QuestionBankQuestionServiceImpl extends ServiceImpl<QuestionBankQue
     @Transactional(rollbackFor = Exception.class)
     public void batchRemoveQuestionFromBank(List<Long> questionIdList, Long questionBankId) {
         //参数校验
-        ThrowUtils.throwIf(CollUtil.isEmpty(questionIdList),ErrorCode.PARAMS_ERROR,"题目列表为空");
-        ThrowUtils.throwIf(questionBankId==null||questionBankId<=0,ErrorCode.PARAMS_ERROR,"题库id非法");
+        ThrowUtils.throwIf(CollUtil.isEmpty(questionIdList), ErrorCode.PARAMS_ERROR, "题目列表为空");
+        ThrowUtils.throwIf(questionBankId == null || questionBankId <= 0, ErrorCode.PARAMS_ERROR, "题库id非法");
+
+        //检查请求添加的题目列表中，哪些存在于题库中。为防止删除题库中不存在的题目
+        LambdaQueryWrapper<QuestionBankQuestion> lambdaQueryWrapper = Wrappers.lambdaQuery(QuestionBankQuestion.class)
+                .eq(QuestionBankQuestion::getQuestionBankId, questionBankId)
+                .in(QuestionBankQuestion::getQuestionId, questionIdList);
+        //存在于此题库中的题目列表
+        List<QuestionBankQuestion> existQustionList = this.list(lambdaQueryWrapper);
+        //转为questionIdSet
+        Set<Long> existQustionIdSet = existQustionList.stream()
+                .map(QuestionBankQuestion::getQuestionId)
+                .collect(Collectors.toSet());
+        //已经存在于题库中的题目，不用再次添加。过滤一下
+        questionIdList = questionIdList.stream()
+                .filter(existQustionIdSet::contains)
+                .collect(Collectors.toList());
 
         //执行移除关联
         for (Long questionId : questionIdList) {
             //构造查询
-            LambdaQueryWrapper<QuestionBankQuestion> lambdaQueryWrapper = Wrappers.lambdaQuery(QuestionBankQuestion.class)
+            LambdaQueryWrapper<QuestionBankQuestion> insertLambdaQueryWrapper = Wrappers.lambdaQuery(QuestionBankQuestion.class)
                     .eq(QuestionBankQuestion::getQuestionId, questionId)
                     .eq(QuestionBankQuestion::getQuestionBankId, questionBankId);
-            boolean result = this.remove(lambdaQueryWrapper);
-            ThrowUtils.throwIf(!result,ErrorCode.OPERATION_ERROR,"从题库中移除题目失败");
+            boolean result = this.remove(insertLambdaQueryWrapper);
+            ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR, "从题库中移除题目失败");
         }
     }
 
