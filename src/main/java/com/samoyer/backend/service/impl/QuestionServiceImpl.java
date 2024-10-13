@@ -429,11 +429,11 @@ public class QuestionServiceImpl extends ServiceImpl<QuestionMapper, Question> i
         //参数校验
         ThrowUtils.throwIf(CollUtil.isEmpty(questionIdList), ErrorCode.PARAMS_ERROR, "批量删除题目列表为空");
         for (Long questionId : questionIdList) {
-            // TODO 批量删除题目时候
             //删除题目
             boolean result = this.removeById(questionId);
             ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR, "删除题目失败");
 
+            // TODO 批量删除题目的时候，需处理其中某个题目未与任何题库关联的情况
             //移除题库题目关联
             LambdaQueryWrapper<QuestionBankQuestion> lambdaQueryWrapper = Wrappers.lambdaQuery(QuestionBankQuestion.class)
                     .eq(QuestionBankQuestion::getQuestionId, questionId);
