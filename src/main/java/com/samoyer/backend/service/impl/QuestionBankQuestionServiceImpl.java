@@ -34,9 +34,14 @@ import org.springframework.transaction.annotation.Transactional;
 
 import javax.annotation.Resource;
 import javax.servlet.http.HttpServletRequest;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 /**
@@ -224,7 +229,7 @@ public class QuestionBankQuestionServiceImpl extends ServiceImpl<QuestionBankQue
                 .select(Question::getId)
                 .in(Question::getId, questionIdList);
         //这里直接转为id列表。不然的话list出来的是Question，还要再继续使用stream映射，就多占用了空间内存
-        List<Long> validQuestionIdList = questionService.listObjs(questionLambdaQueryWrapper,obj->(Long) obj);
+        List<Long> validQuestionIdList = questionService.listObjs(questionLambdaQueryWrapper, obj -> (Long) obj);
         ThrowUtils.throwIf(validQuestionIdList.size() != questionIdList.size(), ErrorCode.PARAMS_ERROR, "题目请求列表中存在不合法的题目id");
         ThrowUtils.throwIf(CollUtil.isEmpty(validQuestionIdList), ErrorCode.PARAMS_ERROR, "合法的题目列表为空");
 
@@ -248,6 +253,19 @@ public class QuestionBankQuestionServiceImpl extends ServiceImpl<QuestionBankQue
         }).collect(Collectors.toList());
         ThrowUtils.throwIf(CollUtil.isEmpty(validQuestionIdList), ErrorCode.PARAMS_ERROR, "所有题目已存在于题库中，请勿重复添加~");
 
+        //使用并发处理多批次的操作
+        //自定义线程池
+        ThreadPoolExecutor executor = new ThreadPoolExecutor(
+                20,
+                50,
+                60L,
+                TimeUnit.SECONDS,
+                new LinkedBlockingQueue<>(10000),
+                new ThreadPoolExecutor.CallerRunsPolicy()
+        );
+        //保存所有批次的CompletableFuture（类，表示异步操作的结果）
+        List<CompletableFuture<Void>> futures = new ArrayList<>();
+
         //分批次处理添加操作，避免长事务
         int batchSize = 1000;
         int totalQuestionListSize = validQuestionIdList.size();
@@ -265,10 +283,21 @@ public class QuestionBankQuestionServiceImpl extends ServiceImpl<QuestionBankQue
             //使用事务处理每批次数据。通过AopContext获取当前类的代理对象，来调用需要的方法
             //Spring的事务依赖于代理机制。而如果通过this来调用的话，就不会触发batchAddQuestionToBankInner的事务
             QuestionBankQuestionService questionBankQuestionService = (QuestionBankQuestionService) AopContext.currentProxy();
-            //执行添加
-            questionBankQuestionService.batchAddQuestionToBankInner(questionBankQuestions);
+
+            //执行添加。异步并发执行。exceptionally并发异常处理
+            CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
+                questionBankQuestionService.batchAddQuestionToBankInner(questionBankQuestions);
+            }, executor).exceptionally(ex -> {
+                log.error("batchAddQuestionToBank 批处理任务出现执行失败", ex);
+                return null;
+            });
+            futures.add(future);
         }
 
+        //等待所有批次操作完成
+        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+        //关线程池
+        executor.shutdown();
     }
 
     /**
@@ -325,6 +354,19 @@ public class QuestionBankQuestionServiceImpl extends ServiceImpl<QuestionBankQue
                 .filter(existQustionIdSet::contains)
                 .collect(Collectors.toList());
 
+        //使用并发处理多批次的操作
+        //自定义线程池
+        ThreadPoolExecutor executor = new ThreadPoolExecutor(
+                20,
+                50,
+                60L,
+                TimeUnit.SECONDS,
+                new LinkedBlockingQueue<>(10000),
+                new ThreadPoolExecutor.CallerRunsPolicy()
+        );
+        //保存所有批次的CompletableFuture（类，表示异步操作的结果）
+        List<CompletableFuture<Void>> futures = new ArrayList<>();
+
         //分批次处理添加操作，避免长事务
         int batchSize = 1000;
         int totalQuestionListSize = questionIdList.size();
@@ -334,9 +376,20 @@ public class QuestionBankQuestionServiceImpl extends ServiceImpl<QuestionBankQue
 
             //使用事务处理每批次数据
             QuestionBankQuestionService questionBankQuestionService = (QuestionBankQuestionService) AopContext.currentProxy();
-            //执行添加
-            questionBankQuestionService.batchRemoveQuestionFromBankInner(subQuestionIdList, questionBankId);
+            //并发执行移除
+            CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
+                questionBankQuestionService.batchRemoveQuestionFromBankInner(subQuestionIdList, questionBankId);
+            }, executor).exceptionally(ex -> {
+                log.error("batchRemoveQuestionFromBank 批处理任务出现执行失败", ex);
+                return null;
+            });
+            futures.add(future);
         }
+
+        //等待所有批次操作完成
+        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+        //关线程池
+        executor.shutdown();
     }
 
     /**
