@@ -243,6 +243,7 @@ public class QuestionBankQuestionServiceImpl extends ServiceImpl<QuestionBankQue
         validQuestionIdList = validQuestionIdList.stream().filter(questionId -> {
             return !existQustionIdSet.contains(questionId);
         }).collect(Collectors.toList());
+        ThrowUtils.throwIf(CollUtil.isEmpty(validQuestionIdList), ErrorCode.PARAMS_ERROR, "所有题目已存在于题库中，请勿重复添加~");
 
         //执行批量添加
         for (Long questionId : validQuestionIdList) {

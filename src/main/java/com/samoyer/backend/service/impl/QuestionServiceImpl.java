@@ -428,17 +428,26 @@ public class QuestionServiceImpl extends ServiceImpl<QuestionMapper, Question> i
     public void batchDeleteQuestions(List<Long> questionIdList) {
         //参数校验
         ThrowUtils.throwIf(CollUtil.isEmpty(questionIdList), ErrorCode.PARAMS_ERROR, "批量删除题目列表为空");
+        //查询批量删除题目列表中的与题库相关联着的有效题目
+        LambdaQueryWrapper<QuestionBankQuestion> lambdaQueryWrapper = Wrappers.lambdaQuery(QuestionBankQuestion.class)
+                .in(QuestionBankQuestion::getQuestionId, questionIdList);
+        List<QuestionBankQuestion> validQuestions = questionBankQuestionService.list(lambdaQueryWrapper);
+        //与题库关联着的题目idList
+        Set<Long> validQuestionsIdList = validQuestions.stream().map(QuestionBankQuestion::getQuestionId).collect(Collectors.toSet());
+
         for (Long questionId : questionIdList) {
             //删除题目
             boolean result = this.removeById(questionId);
             ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR, "删除题目失败");
 
-            // TODO 批量删除题目的时候，需处理其中某个题目未与任何题库关联的情况
-            //移除题库题目关联
-            LambdaQueryWrapper<QuestionBankQuestion> lambdaQueryWrapper = Wrappers.lambdaQuery(QuestionBankQuestion.class)
-                    .eq(QuestionBankQuestion::getQuestionId, questionId);
-            result = questionBankQuestionService.remove(lambdaQueryWrapper);
-            ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR, "移除题库题目关联失败");
+            //该题目若与题库关联着，就移除关联，没有则忽略
+            if (validQuestionsIdList.contains(questionId)) {
+                //移除题库题目关联。只删除题库题目表中存在的数据。（因为有可能批量删除的题目不与任何题库关联）
+                lambdaQueryWrapper = Wrappers.lambdaQuery(QuestionBankQuestion.class)
+                        .eq(QuestionBankQuestion::getQuestionId, questionId);
+                result = questionBankQuestionService.remove(lambdaQueryWrapper);
+                ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR, "移除题库题目关联失败");
+            }
         }
     }
 
