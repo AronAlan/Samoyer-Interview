@@ -34,6 +34,7 @@ import org.elasticsearch.index.query.QueryBuilders;
 import org.elasticsearch.search.sort.SortBuilder;
 import org.elasticsearch.search.sort.SortBuilders;
 import org.elasticsearch.search.sort.SortOrder;
+import org.springframework.aop.framework.AopContext;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.elasticsearch.core.ElasticsearchRestTemplate;
 import org.springframework.data.elasticsearch.core.SearchHit;
@@ -424,7 +425,6 @@ public class QuestionServiceImpl extends ServiceImpl<QuestionMapper, Question> i
      * @param questionIdList
      */
     @Override
-    @Transactional(rollbackFor = Exception.class)
     public void batchDeleteQuestions(List<Long> questionIdList) {
         //参数校验
         ThrowUtils.throwIf(CollUtil.isEmpty(questionIdList), ErrorCode.PARAMS_ERROR, "批量删除题目列表为空");
@@ -435,6 +435,30 @@ public class QuestionServiceImpl extends ServiceImpl<QuestionMapper, Question> i
         //与题库关联着的题目idList
         Set<Long> validQuestionsIdList = validQuestions.stream().map(QuestionBankQuestion::getQuestionId).collect(Collectors.toSet());
 
+        //分批次处理添加操作，避免长事务
+        int batchSize = 1000;
+        int totalQuestionListSize = questionIdList.size();
+        for (int i = 0; i < totalQuestionListSize; i += batchSize) {
+            //生成每批次的数据
+            List<Long> subQuestionIdList = questionIdList.subList(i, Math.min(i + batchSize, totalQuestionListSize));
+
+            //使用事务处理每批次数据
+            QuestionService questionService = (QuestionService) AopContext.currentProxy();
+            //执行添加
+            questionService.batchDeleteQuestionsInner(subQuestionIdList,validQuestionsIdList);
+        }
+
+
+    }
+
+    /**
+     * 避免长事务问题，将batchDeleteQuestions批量删除题目的操作独立出来
+     * @param questionIdList
+     * @param validQuestionsIdList
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void batchDeleteQuestionsInner(List<Long> questionIdList,Set<Long> validQuestionsIdList) {
         for (Long questionId : questionIdList) {
             //删除题目
             boolean result = this.removeById(questionId);
@@ -443,7 +467,7 @@ public class QuestionServiceImpl extends ServiceImpl<QuestionMapper, Question> i
             //该题目若与题库关联着，就移除关联，没有则忽略
             if (validQuestionsIdList.contains(questionId)) {
                 //移除题库题目关联。只删除题库题目表中存在的数据。（因为有可能批量删除的题目不与任何题库关联）
-                lambdaQueryWrapper = Wrappers.lambdaQuery(QuestionBankQuestion.class)
+                LambdaQueryWrapper<QuestionBankQuestion> lambdaQueryWrapper = Wrappers.lambdaQuery(QuestionBankQuestion.class)
                         .eq(QuestionBankQuestion::getQuestionId, questionId);
                 result = questionBankQuestionService.remove(lambdaQueryWrapper);
                 ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR, "移除题库题目关联失败");

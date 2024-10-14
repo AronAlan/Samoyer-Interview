@@ -25,6 +25,7 @@ import com.samoyer.backend.service.UserService;
 import com.samoyer.backend.utils.SqlUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.ObjectUtils;
+import org.springframework.aop.framework.AopContext;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -129,7 +130,7 @@ public class QuestionBankQuestionServiceImpl extends ServiceImpl<QuestionBankQue
                 .eq(QuestionBankQuestion::getQuestionId, questionId);
         List<QuestionBankQuestion> questionBankQuestionList = this.list(lambdaQueryWrapper);
         //如果题目未与任何题库关联，直接成功删除题目就行了
-        if (CollUtil.isEmpty(questionBankQuestionList)){
+        if (CollUtil.isEmpty(questionBankQuestionList)) {
             return true;
         }
         boolean result = this.remove(lambdaQueryWrapper);
@@ -211,7 +212,6 @@ public class QuestionBankQuestionServiceImpl extends ServiceImpl<QuestionBankQue
      * @param loginUser
      */
     @Override
-    @Transactional(rollbackFor = Exception.class)
     public void batchAddQuestionToBank(List<Long> questionIdList, Long questionBankId, User loginUser) {
         //参数校验
         ThrowUtils.throwIf(CollUtil.isEmpty(questionIdList), ErrorCode.PARAMS_ERROR, "题目列表为空");
@@ -245,12 +245,41 @@ public class QuestionBankQuestionServiceImpl extends ServiceImpl<QuestionBankQue
         }).collect(Collectors.toList());
         ThrowUtils.throwIf(CollUtil.isEmpty(validQuestionIdList), ErrorCode.PARAMS_ERROR, "所有题目已存在于题库中，请勿重复添加~");
 
+        //分批次处理添加操作，避免长事务
+        int batchSize = 1000;
+        int totalQuestionListSize = validQuestionIdList.size();
+        for (int i = 0; i < totalQuestionListSize; i += batchSize) {
+            //生成每批次的数据
+            List<Long> subList = validQuestionIdList.subList(i, Math.min(i + batchSize, totalQuestionListSize));
+            List<QuestionBankQuestion> questionBankQuestions = subList.stream().map(questionId -> {
+                QuestionBankQuestion questionBankQuestion = new QuestionBankQuestion();
+                questionBankQuestion.setQuestionId(questionId);
+                questionBankQuestion.setQuestionBankId(questionBankId);
+                questionBankQuestion.setUserId(loginUser.getId());
+                return questionBankQuestion;
+            }).collect(Collectors.toList());
+
+            //使用事务处理每批次数据。通过AopContext获取当前类的代理对象，来调用需要的方法
+            //Spring的事务依赖于代理机制。而如果通过this来调用的话，就不会触发batchAddQuestionToBankInner的事务
+            QuestionBankQuestionService questionBankQuestionService = (QuestionBankQuestionService) AopContext.currentProxy();
+            //执行添加
+            questionBankQuestionService.batchAddQuestionToBankInner(questionBankQuestions);
+        }
+
+    }
+
+    /**
+     * 避免长事务问题，将batchAddQuestionToBank批量添加题目到题库中执行批量添加的操作独立出来
+     *
+     * @param questionBankQuestions
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void batchAddQuestionToBankInner(List<QuestionBankQuestion> questionBankQuestions) {
         //执行批量添加
-        for (Long questionId : validQuestionIdList) {
-            QuestionBankQuestion questionBankQuestion = new QuestionBankQuestion();
-            questionBankQuestion.setQuestionBankId(questionBankId);
-            questionBankQuestion.setQuestionId(questionId);
-            questionBankQuestion.setUserId(loginUser.getId());
+        for (QuestionBankQuestion questionBankQuestion : questionBankQuestions) {
+            Long questionId = questionBankQuestion.getQuestionId();
+            Long questionBankId = questionBankQuestion.getQuestionBankId();
             //执行添加，并捕获特殊异常
             try {
                 boolean result = this.save(questionBankQuestion);
@@ -272,6 +301,7 @@ public class QuestionBankQuestionServiceImpl extends ServiceImpl<QuestionBankQue
         }
     }
 
+
     /**
      * 批量从题库中移除题目（关联）
      *
@@ -279,7 +309,6 @@ public class QuestionBankQuestionServiceImpl extends ServiceImpl<QuestionBankQue
      * @param questionBankId
      */
     @Override
-    @Transactional(rollbackFor = Exception.class)
     public void batchRemoveQuestionFromBank(List<Long> questionIdList, Long questionBankId) {
         //参数校验
         ThrowUtils.throwIf(CollUtil.isEmpty(questionIdList), ErrorCode.PARAMS_ERROR, "题目列表为空");
@@ -295,11 +324,33 @@ public class QuestionBankQuestionServiceImpl extends ServiceImpl<QuestionBankQue
         Set<Long> existQustionIdSet = existQustionList.stream()
                 .map(QuestionBankQuestion::getQuestionId)
                 .collect(Collectors.toSet());
-        //已经存在于题库中的题目，不用再次添加。过滤一下
+        //不存在于该题库中的题目，不用再次移除关联。过滤一下
         questionIdList = questionIdList.stream()
                 .filter(existQustionIdSet::contains)
                 .collect(Collectors.toList());
 
+        //分批次处理添加操作，避免长事务
+        int batchSize = 1000;
+        int totalQuestionListSize = questionIdList.size();
+        for (int i = 0; i < totalQuestionListSize; i += batchSize) {
+            //生成每批次的数据
+            List<Long> subQuestionIdList = questionIdList.subList(i, Math.min(i + batchSize, totalQuestionListSize));
+
+            //使用事务处理每批次数据
+            QuestionBankQuestionService questionBankQuestionService = (QuestionBankQuestionService) AopContext.currentProxy();
+            //执行添加
+            questionBankQuestionService.batchRemoveQuestionFromBankInner(subQuestionIdList,questionBankId);
+        }
+    }
+
+    /**
+     * 避免长事务问题，将batchRemoveQuestionFromBank批量从题库中移除题目的操作独立出来
+     * @param questionIdList
+     * @param questionBankId
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void batchRemoveQuestionFromBankInner(List<Long> questionIdList,Long questionBankId) {
         //执行移除关联
         for (Long questionId : questionIdList) {
             //构造查询

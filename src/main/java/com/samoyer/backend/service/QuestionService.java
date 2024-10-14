@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 
 import javax.servlet.http.HttpServletRequest;
 import java.util.List;
+import java.util.Set;
 
 /**
  * 题目服务
@@ -87,7 +88,14 @@ public interface QuestionService extends IService<Question> {
     void batchDeleteQuestions(List<Long> questionIdList);
 
     /**
-     * 用于删除或增加时主动增量同步到ES
+     * 避免长事务问题，将batchDeleteQuestions批量删除题目的操作独立出来
+     * @param questionIdList
+     * @param validQuestionsIdList
      */
+    void batchDeleteQuestionsInner(List<Long> questionIdList, Set<Long> validQuestionsIdList);
+
+        /**
+         * 用于删除或增加时主动增量同步到ES
+         */
     void incrementalEs();
 }
