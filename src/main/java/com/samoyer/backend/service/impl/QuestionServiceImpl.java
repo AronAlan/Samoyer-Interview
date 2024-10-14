@@ -459,11 +459,10 @@ public class QuestionServiceImpl extends ServiceImpl<QuestionMapper, Question> i
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void batchDeleteQuestionsInner(List<Long> questionIdList,Set<Long> validQuestionsIdList) {
+        //删除题目
+        boolean result = this.removeBatchByIds(questionIdList);
+        ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR, "删除题目失败");
         for (Long questionId : questionIdList) {
-            //删除题目
-            boolean result = this.removeById(questionId);
-            ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR, "删除题目失败");
-
             //该题目若与题库关联着，就移除关联，没有则忽略
             if (validQuestionsIdList.contains(questionId)) {
                 //移除题库题目关联。只删除题库题目表中存在的数据。（因为有可能批量删除的题目不与任何题库关联）

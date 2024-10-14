@@ -276,29 +276,22 @@ public class QuestionBankQuestionServiceImpl extends ServiceImpl<QuestionBankQue
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void batchAddQuestionToBankInner(List<QuestionBankQuestion> questionBankQuestions) {
-        //执行批量添加
-        for (QuestionBankQuestion questionBankQuestion : questionBankQuestions) {
-            Long questionId = questionBankQuestion.getQuestionId();
-            Long questionBankId = questionBankQuestion.getQuestionBankId();
-            //执行添加，并捕获特殊异常
-            try {
-                boolean result = this.save(questionBankQuestion);
-                ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR, "向题库中批量添加题目失败");
-            } catch (DataIntegrityViolationException e) {
-                log.error("数据库唯一键冲突或违反其他完整性约束，题目 id: {}, 题库 id: {}, 错误信息: {}",
-                        questionId, questionBankId, e.getMessage());
-                throw new BusinessException(ErrorCode.OPERATION_ERROR, "题目已存在于该题库，无法重复添加");
-            } catch (DataAccessException e) {
-                log.error("数据库连接问题、事务问题等导致操作失败，题目 id: {}, 题库 id: {}, 错误信息: {}",
-                        questionId, questionBankId, e.getMessage());
-                throw new BusinessException(ErrorCode.OPERATION_ERROR, "数据库操作失败");
-            } catch (Exception e) {
-                // 捕获其他异常，做通用处理
-                log.error("添加题目到题库时发生未知错误，题目 id: {}, 题库 id: {}, 错误信息: {}",
-                        questionId, questionBankId, e.getMessage());
-                throw new BusinessException(ErrorCode.OPERATION_ERROR, "向题库添加题目失败");
-            }
+        //执行添加，并捕获特殊异常
+        try {
+            boolean result = this.saveBatch(questionBankQuestions);
+            ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR, "向题库中批量添加题目失败");
+        } catch (DataIntegrityViolationException e) {
+            log.error("数据库唯一键冲突或违反其他完整性约束，错误信息: {}", e.getMessage());
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "题目已存在于该题库，无法重复添加");
+        } catch (DataAccessException e) {
+            log.error("数据库连接问题、事务问题等导致操作失败，错误信息: {}", e.getMessage());
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "数据库操作失败");
+        } catch (Exception e) {
+            // 捕获其他异常，做通用处理
+            log.error("添加题目到题库时发生未知错误，错误信息: {}", e.getMessage());
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "向题库添加题目失败");
         }
+
     }
 
 
@@ -339,18 +332,19 @@ public class QuestionBankQuestionServiceImpl extends ServiceImpl<QuestionBankQue
             //使用事务处理每批次数据
             QuestionBankQuestionService questionBankQuestionService = (QuestionBankQuestionService) AopContext.currentProxy();
             //执行添加
-            questionBankQuestionService.batchRemoveQuestionFromBankInner(subQuestionIdList,questionBankId);
+            questionBankQuestionService.batchRemoveQuestionFromBankInner(subQuestionIdList, questionBankId);
         }
     }
 
     /**
      * 避免长事务问题，将batchRemoveQuestionFromBank批量从题库中移除题目的操作独立出来
+     *
      * @param questionIdList
      * @param questionBankId
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void batchRemoveQuestionFromBankInner(List<Long> questionIdList,Long questionBankId) {
+    public void batchRemoveQuestionFromBankInner(List<Long> questionIdList, Long questionBankId) {
         //执行移除关联
         for (Long questionId : questionIdList) {
             //构造查询
