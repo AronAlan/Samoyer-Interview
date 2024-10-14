@@ -29,6 +29,56 @@
       "name": "wx.open.appSecret",
       "type": "java.lang.String",
       "description": "Description for wx.open.appSecret."
+    },
+    {
+      "name": "spring.datasource.druid.initial-size",
+      "type": "java.lang.String",
+      "description": "Description for spring.datasource.druid.initial-size."
+    },
+    {
+      "name": "spring.datasource.druid.minIdle",
+      "type": "java.lang.String",
+      "description": "Description for spring.datasource.druid.minIdle."
+    },
+    {
+      "name": "spring.datasource.druid.max-active",
+      "type": "java.lang.String",
+      "description": "Description for spring.datasource.druid.max-active."
+    },
+    {
+      "name": "spring.datasource.druid.max-wait",
+      "type": "java.lang.String",
+      "description": "Description for spring.datasource.druid.max-wait."
+    },
+    {
+      "name": "spring.datasource.druid.filter.stat.enabled",
+      "type": "java.lang.String",
+      "description": "Description for spring.datasource.druid.filter.stat.enabled."
+    },
+    {
+      "name": "spring.datasource.druid.filter.stat.log-slow-sql",
+      "type": "java.lang.String",
+      "description": "Description for spring.datasource.druid.filter.stat.log-slow-sql."
+    },
+    {
+      "name": "spring.datasource.druid.filter.stat.db-type",
+      "type": "java.lang.String",
+      "description": "Description for spring.datasource.druid.filter.stat.db-type."
+    },
+    {
+      "name": "spring.datasource.druid.stat-view-servlet.enabled",
+      "type": "java.lang.String",
+      "description": "Description for spring.datasource.druid.stat-view-servlet.enabled."
+    },
+    {
+      "name": "spring.datasource.druid.stat-view-servlet.url-pattern",
+      "type": "java.lang.String",
+      "description": "Description for spring.datasource.druid.stat-view-servlet.url-pattern."
+    },
+    {
+      "name": "spring.datasource.druid.stat-view-servlet.allow",
+      "type": "java.lang.String",
+      "description": "Description for spring.datasource.druid.stat-view-servlet.allow."
     }
   ]
 }
