@@ -217,14 +217,17 @@ public class QuestionBankQuestionServiceImpl extends ServiceImpl<QuestionBankQue
         ThrowUtils.throwIf(CollUtil.isEmpty(questionIdList), ErrorCode.PARAMS_ERROR, "题目列表为空");
         ThrowUtils.throwIf(questionBankId == null || questionBankId <= 0, ErrorCode.PARAMS_ERROR, "题库id非法");
         ThrowUtils.throwIf(loginUser == null, ErrorCode.NOT_LOGIN_ERROR);
+
         //校验题目id是否存在
-        List<Question> questionList = questionService.listByIds(questionIdList);
-        //合法的questionIdList
-        List<Long> validQuestionIdList = questionList.stream()
-                .map(Question::getId)
-                .collect(Collectors.toList());
+        //这里改为使用lambdaQuery，避免使用listByIds底层使用的是select *
+        LambdaQueryWrapper<Question> questionLambdaQueryWrapper = Wrappers.lambdaQuery(Question.class)
+                .select(Question::getId)
+                .in(Question::getId, questionIdList);
+        //这里直接转为id列表。不然的话list出来的是Question，还要再继续使用stream映射，就多占用了空间内存
+        List<Long> validQuestionIdList = questionService.listObjs(questionLambdaQueryWrapper,obj->(Long) obj);
         ThrowUtils.throwIf(validQuestionIdList.size() != questionIdList.size(), ErrorCode.PARAMS_ERROR, "题目请求列表中存在不合法的题目id");
         ThrowUtils.throwIf(CollUtil.isEmpty(validQuestionIdList), ErrorCode.PARAMS_ERROR, "合法的题目列表为空");
+
         //检查题库是否存在
         QuestionBank questionBank = questionBankService.getById(questionBankId);
         ThrowUtils.throwIf(questionBank == null, ErrorCode.NOT_FOUND_ERROR, "题库不存在");
