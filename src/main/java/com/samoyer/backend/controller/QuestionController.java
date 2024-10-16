@@ -3,6 +3,7 @@ package com.samoyer.backend.controller;
 import cn.hutool.core.collection.CollUtil;
 import cn.hutool.json.JSONUtil;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.jd.platform.hotkey.client.callback.JdHotKeyStore;
 import com.samoyer.backend.annotation.AuthCheck;
 import com.samoyer.backend.common.BaseResponse;
 import com.samoyer.backend.common.DeleteRequest;
@@ -19,6 +20,7 @@ import com.samoyer.backend.model.dto.question.QuestionUpdateRequest;
 import com.samoyer.backend.model.dto.questionbankquestion.QuestionBatchDeleteRequest;
 import com.samoyer.backend.model.entity.Question;
 import com.samoyer.backend.model.entity.User;
+import com.samoyer.backend.model.vo.QuestionBankVO;
 import com.samoyer.backend.model.vo.QuestionSimpleVO;
 import com.samoyer.backend.model.vo.QuestionVO;
 import com.samoyer.backend.service.QuestionBankQuestionService;
@@ -165,11 +167,30 @@ public class QuestionController {
     @GetMapping("/get/vo")
     public BaseResponse<QuestionVO> getQuestionVOById(long id, HttpServletRequest request) {
         ThrowUtils.throwIf(id <= 0, ErrorCode.PARAMS_ERROR);
-        // 查询数据库
+
+        /* 热key缓存 */
+        //生成key
+        String key = "question_detail_" + id;
+        if (JdHotKeyStore.isHotKey(key)) {
+            //从本地缓存中获取缓存值
+            Object cachedQuestionVO = JdHotKeyStore.get(key);
+            //如果缓存中有值的话，直接返回缓存的值
+            if (cachedQuestionVO != null) {
+                return ResultUtils.success((QuestionVO) cachedQuestionVO);
+            }
+        }
+
+        /* 热key缓存 */
+        // 缓存中值为空的话，则先正常查询数据库
         Question question = questionService.getById(id);
         ThrowUtils.throwIf(question == null, ErrorCode.NOT_FOUND_ERROR);
         // 获取封装类
-        return ResultUtils.success(questionService.getQuestionVO(question, request));
+        QuestionVO questionVO = questionService.getQuestionVO(question, request);
+
+        //将查询到的数据设置本地缓存
+        JdHotKeyStore.smartSet(key, questionVO);
+
+        return ResultUtils.success(questionVO);
     }
 
     /**

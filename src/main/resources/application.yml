@@ -164,3 +164,10 @@ knife4j:
         api-rule: package
         api-rule-resources:
           - com.samoyer.backend.controller
+# 京东Hotkey配置。热key探测
+hotkey:
+  app-name: mianshixiong
+  caffeine-size: 10000
+  push-period: 1000
+  etcd-server: http://localhost:2379
+

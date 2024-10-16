@@ -1,6 +1,7 @@
 package com.samoyer.backend.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.jd.platform.hotkey.client.callback.JdHotKeyStore;
 import com.samoyer.backend.annotation.AuthCheck;
 import com.samoyer.backend.common.BaseResponse;
 import com.samoyer.backend.common.DeleteRequest;
@@ -141,7 +142,25 @@ public class QuestionBankController {
         ThrowUtils.throwIf(questionBankQueryRequest == null, ErrorCode.PARAMS_ERROR);
         Long id = questionBankQueryRequest.getId();
         ThrowUtils.throwIf(id <= 0, ErrorCode.PARAMS_ERROR);
-        // 查询数据库
+
+        /* 热key缓存 */
+        //根据题库id生成key
+        String key = "bank_detail_" + id;
+        //isHotKey如果是热key，返回true。如果不是热key，返回false，并上报到works进行数量计算
+        // 如果已经是热key 则不会再push，离过期还有2秒内的时候，会再次push，这样这个key可能被继续设置为热key。减少了出现雪崩问题的可能性
+        if (JdHotKeyStore.isHotKey(key)) {
+            //从本地缓存中获取缓存值
+            Object cachedQuestionBankVO = JdHotKeyStore.get(key);
+            //如果缓存中有值的话，直接返回缓存的值
+            //比如如果设置5秒请求10次的话判定为热key的话
+            //第11次请求的时候虽然会判断为hotkey，但还是不会走缓存，第11次请求会先设置缓存。后续就能查询缓存了。
+            if (cachedQuestionBankVO != null) {
+                return ResultUtils.success((QuestionBankVO) cachedQuestionBankVO);
+            }
+        }
+
+        //缓存中值为空的话，则先正常查数据库
+        /* 查询数据库 */
         QuestionBank questionBank = questionBankService.getById(id);
         ThrowUtils.throwIf(questionBank == null, ErrorCode.NOT_FOUND_ERROR);
         // 查询题库封装类
@@ -158,6 +177,9 @@ public class QuestionBankController {
             Page<Question> questionPage = questionService.listQuestionByPage(questionQueryRequest);
             questionBankVO.setQuestionPage(questionService.getQuestionVOPage(questionPage, request));
         }
+
+        //将查询到的数据设置本地缓存。smartSet只给热key赋值，如果不是热key的话什么也不做
+        JdHotKeyStore.smartSet(key, questionBankVO);
 
         return ResultUtils.success(questionBankVO);
     }

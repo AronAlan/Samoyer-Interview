@@ -18,7 +18,7 @@ import java.util.List;
 public class QuestionBankQueryRequest extends PageRequest implements Serializable {
 
     /**
-     * id
+     * questionBank 的 id
      */
     private Long id;
 
