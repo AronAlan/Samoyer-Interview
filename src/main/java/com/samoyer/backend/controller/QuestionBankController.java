@@ -1,5 +1,8 @@
 package com.samoyer.backend.controller;
 
+import com.alibaba.csp.sentinel.annotation.SentinelResource;
+import com.alibaba.csp.sentinel.slots.block.BlockException;
+import com.alibaba.csp.sentinel.slots.block.degrade.DegradeException;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.jd.platform.hotkey.client.callback.JdHotKeyStore;
 import com.samoyer.backend.annotation.AuthCheck;
@@ -203,12 +206,16 @@ public class QuestionBankController {
 
     /**
      * 分页获取题库列表（封装类）
+     * 具有限流、熔断和降级
      *
      * @param questionBankQueryRequest
      * @param request
      * @return
      */
     @PostMapping("/list/page/vo")
+    @SentinelResource(value = "listQuestionBankVOByPage",
+            blockHandler = "handleBlockException",
+            fallback = "handleFallback")
     public BaseResponse<Page<QuestionBankVO>> listQuestionBankVOByPage(@RequestBody QuestionBankQueryRequest questionBankQueryRequest,
                                                                        HttpServletRequest request) {
         long current = questionBankQueryRequest.getCurrent();
@@ -220,6 +227,35 @@ public class QuestionBankController {
                 questionBankService.getQueryWrapper(questionBankQueryRequest));
         // 获取封装类
         return ResultUtils.success(questionBankService.getQuestionBankVOPage(questionBankPage, request));
+    }
+
+
+    /**
+     * listQuestionBankVOByPage 降级操作：直接返回本地数据或空数据
+     * fallback只处理业务本身的异常（如数据库查询异常）
+     * 这里的降级只针对业务异常
+     */
+    public BaseResponse<Page<QuestionBankVO>> handleFallback(@RequestBody QuestionBankQueryRequest questionBankQueryRequest,
+                                                             HttpServletRequest request, Throwable ex) {
+        // 可以返回本地数据或空数据
+        return ResultUtils.success(null);
+    }
+
+    /**
+     * listQuestionBankVOByPage 流控操作
+     * BlockException处理所有限流和熔断的异常
+     * DegradeException extends BlockException
+     * 所以这里是针对限流操作和熔断后的降级操作
+     */
+    public BaseResponse<Page<QuestionBankVO>> handleBlockException(@RequestBody QuestionBankQueryRequest questionBankQueryRequest,
+                                                                   HttpServletRequest request, BlockException ex) {
+        // 熔断降级操作
+        if (ex instanceof DegradeException){
+            return handleFallback(questionBankQueryRequest,request,ex);
+        }
+
+        // 限流操作
+        return ResultUtils.error(ErrorCode.SYSTEM_ERROR, "系统压力过大，请耐心等待");
     }
 
     /**
