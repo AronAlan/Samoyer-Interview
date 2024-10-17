@@ -2,6 +2,12 @@ package com.samoyer.backend.controller;
 
 import cn.hutool.core.collection.CollUtil;
 import cn.hutool.json.JSONUtil;
+import com.alibaba.csp.sentinel.Entry;
+import com.alibaba.csp.sentinel.EntryType;
+import com.alibaba.csp.sentinel.SphU;
+import com.alibaba.csp.sentinel.Tracer;
+import com.alibaba.csp.sentinel.slots.block.BlockException;
+import com.alibaba.csp.sentinel.slots.block.degrade.DegradeException;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.jd.platform.hotkey.client.callback.JdHotKeyStore;
 import com.samoyer.backend.annotation.AuthCheck;
@@ -12,7 +18,6 @@ import com.samoyer.backend.common.ResultUtils;
 import com.samoyer.backend.constant.UserConstant;
 import com.samoyer.backend.exception.BusinessException;
 import com.samoyer.backend.exception.ThrowUtils;
-import com.samoyer.backend.job.cycle.IncSyncQuestionToEs;
 import com.samoyer.backend.model.dto.question.QuestionAddRequest;
 import com.samoyer.backend.model.dto.question.QuestionEditRequest;
 import com.samoyer.backend.model.dto.question.QuestionQueryRequest;
@@ -20,7 +25,6 @@ import com.samoyer.backend.model.dto.question.QuestionUpdateRequest;
 import com.samoyer.backend.model.dto.questionbankquestion.QuestionBatchDeleteRequest;
 import com.samoyer.backend.model.entity.Question;
 import com.samoyer.backend.model.entity.User;
-import com.samoyer.backend.model.vo.QuestionBankVO;
 import com.samoyer.backend.model.vo.QuestionSimpleVO;
 import com.samoyer.backend.model.vo.QuestionVO;
 import com.samoyer.backend.service.QuestionBankQuestionService;
@@ -222,11 +226,102 @@ public class QuestionController {
         long size = questionQueryRequest.getPageSize();
         // 限制爬虫
         ThrowUtils.throwIf(size > 20, ErrorCode.PARAMS_ERROR);
-        // 查询数据库
-        Page<Question> questionPage = questionService.page(new Page<>(current, size),
-                questionService.getQueryWrapper(questionQueryRequest));
-        // 获取封装类
-        return ResultUtils.success(questionService.getQuestionVOPage(questionPage, request));
+
+        //基于IP限流
+        String remoteAddr = request.getRemoteAddr();
+        Entry entry = null;
+        try {
+            //上报资源
+            entry = SphU.entry("listQuestionVOByPage", EntryType.IN, 1, remoteAddr);
+            //如果上报没有异常，则正常执行
+            //查询数据库
+            Page<Question> questionPage = questionService.page(new Page<>(current, size),
+                    questionService.getQueryWrapper(questionQueryRequest));
+            //获取封装类
+            return ResultUtils.success(questionService.getQuestionVOPage(questionPage, request));
+        } catch (Throwable ex) {
+            //上报有异常
+            //业务异常
+            if (!BlockException.isBlockException(ex)) {
+                Tracer.trace(ex);
+                return ResultUtils.error(ErrorCode.SYSTEM_ERROR, "系统错误");
+            }
+
+            //熔断降级操作
+            if (ex instanceof DegradeException) {
+                return handleFallback(questionQueryRequest, request, ex);
+            }
+
+            //限流操作
+            return ResultUtils.error(ErrorCode.SYSTEM_ERROR, "访问过于频繁，请稍后再试");
+        } finally {
+            if (entry != null) {
+                //释放entry
+                entry.exit(1, remoteAddr);
+            }
+        }
+    }
+
+    /**
+     * 分页获取题目列表（封装类）（限流版测试）
+     *
+     * @param questionQueryRequest
+     * @param request
+     * @return
+     */
+    /*@PostMapping("/list/page/vo/sentinel")
+    public BaseResponse<Page<QuestionVO>> listQuestionVOByPageSentinel(@RequestBody QuestionQueryRequest questionQueryRequest,
+                                                                       HttpServletRequest request) {
+        long current = questionQueryRequest.getCurrent();
+        long size = questionQueryRequest.getPageSize();
+        // 限制爬虫
+        ThrowUtils.throwIf(size > 20, ErrorCode.PARAMS_ERROR);
+
+        //基于IP限流
+        String remoteAddr = request.getRemoteAddr();
+        Entry entry = null;
+        try {
+            //上报资源（传热点参数IP）（如某IP占用几个我的资源）(batchCount=1就是这个IP每次上报占用几个资源）
+            entry = SphU.entry("listQuestionVOByPage", EntryType.IN, 1, remoteAddr);
+            //如果上报没有异常，则正常执行
+            // 查询数据库
+            Page<Question> questionPage = questionService.page(new Page<>(current, size),
+                    questionService.getQueryWrapper(questionQueryRequest));
+            // 获取封装类
+            return ResultUtils.success(questionService.getQuestionVOPage(questionPage, request));
+        } catch (Throwable ex) {
+            //上报有异常。捕捉业务异常和Block异常
+            //这里不是使用注解（自动统计业务异常，如果是业务异常就自动走fallback降级x）
+            //需要手动记录业务异常
+
+            //不是BlockException，即业务异常
+            if (!BlockException.isBlockException(ex)) {
+                Tracer.trace(ex);
+                return ResultUtils.error(ErrorCode.SYSTEM_ERROR, "系统错误");
+            }
+
+            //熔断降级操作
+            if (ex instanceof DegradeException) {
+                return handleFallback(questionQueryRequest, request, ex);
+            }
+
+            //限流操作
+            return ResultUtils.error(ErrorCode.SYSTEM_ERROR, "访问过于频繁，请稍后再试");
+        } finally {
+            if (entry != null) {
+                //释放entry
+                entry.exit(1, remoteAddr);
+            }
+        }
+    }*/
+
+    /**
+     * 降级逻辑
+     */
+    public BaseResponse<Page<QuestionVO>> handleFallback(QuestionQueryRequest questionQueryRequest,
+                                                         HttpServletRequest request, Throwable ex) {
+        // 可以返回本地数据或空数据
+        return ResultUtils.success(null);
     }
 
     /**
@@ -366,9 +461,9 @@ public class QuestionController {
     @PostMapping("/delete/batch")
     @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
     public BaseResponse<Boolean> batchDeleteQuestions(@RequestBody QuestionBatchDeleteRequest questionBatchDeleteRequest,
-                                                HttpServletRequest request) {
+                                                      HttpServletRequest request) {
         //参数校验
-        ThrowUtils.throwIf(questionBatchDeleteRequest==null,ErrorCode.PARAMS_ERROR);
+        ThrowUtils.throwIf(questionBatchDeleteRequest == null, ErrorCode.PARAMS_ERROR);
         questionService.batchDeleteQuestions(questionBatchDeleteRequest.getQuestionIdList());
         //主动增量同步到ES
         questionService.incrementalEs();
