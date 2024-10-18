@@ -27,6 +27,7 @@ import com.samoyer.backend.model.entity.Question;
 import com.samoyer.backend.model.entity.User;
 import com.samoyer.backend.model.vo.QuestionSimpleVO;
 import com.samoyer.backend.model.vo.QuestionVO;
+import com.samoyer.backend.sentinel.SentinelConstant;
 import com.samoyer.backend.service.QuestionBankQuestionService;
 import com.samoyer.backend.service.QuestionService;
 import com.samoyer.backend.service.UserService;
@@ -232,7 +233,7 @@ public class QuestionController {
         Entry entry = null;
         try {
             //上报资源
-            entry = SphU.entry("listQuestionVOByPage", EntryType.IN, 1, remoteAddr);
+            entry = SphU.entry(SentinelConstant.listQuestionVOByPage, EntryType.IN, 1, remoteAddr);
             //如果上报没有异常，则正常执行
             //查询数据库
             Page<Question> questionPage = questionService.page(new Page<>(current, size),

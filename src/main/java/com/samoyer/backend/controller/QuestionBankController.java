@@ -22,6 +22,7 @@ import com.samoyer.backend.model.entity.Question;
 import com.samoyer.backend.model.entity.QuestionBank;
 import com.samoyer.backend.model.entity.User;
 import com.samoyer.backend.model.vo.QuestionBankVO;
+import com.samoyer.backend.sentinel.SentinelConstant;
 import com.samoyer.backend.service.QuestionBankService;
 import com.samoyer.backend.service.QuestionService;
 import com.samoyer.backend.service.UserService;
@@ -213,7 +214,7 @@ public class QuestionBankController {
      * @return
      */
     @PostMapping("/list/page/vo")
-    @SentinelResource(value = "listQuestionBankVOByPage",
+    @SentinelResource(value = SentinelConstant.listQuestionBankVOByPage,
             blockHandler = "handleBlockException",
             fallback = "handleFallback")
     public BaseResponse<Page<QuestionBankVO>> listQuestionBankVOByPage(@RequestBody QuestionBankQueryRequest questionBankQueryRequest,

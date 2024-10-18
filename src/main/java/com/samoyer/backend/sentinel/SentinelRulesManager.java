@@ -43,7 +43,7 @@ public class SentinelRulesManager {
     public void initFlowRules() {
         // 单 IP 查看题目列表限流规则
         // 被限流后并不是一定要再等一个周期，而是基于令牌桶和滑动窗口，类似于会搁一会儿又准发一次
-        ParamFlowRule rule = new ParamFlowRule("listQuestionVOByPage")
+        ParamFlowRule rule = new ParamFlowRule(SentinelConstant.listQuestionVOByPage)
                 // 对第 0 个参数限流，即 IP 地址
                 .setParamIdx(0)
                 // 每分钟最多 60 次
@@ -58,7 +58,7 @@ public class SentinelRulesManager {
      */
     public void initDegradeRules() {
         // 单 IP 查看题目列表熔断规则
-        DegradeRule slowCallRule = new DegradeRule("listQuestionVOByPage")
+        DegradeRule slowCallRule = new DegradeRule(SentinelConstant.listQuestionVOByPage)
                 .setGrade(CircuitBreakerStrategy.SLOW_REQUEST_RATIO.getType())
                 // 慢调用比例大于 20%
                 .setCount(0.2)
@@ -71,7 +71,7 @@ public class SentinelRulesManager {
                 // 响应时间超过 3 秒
                 .setSlowRatioThreshold(3);
 
-        DegradeRule errorRateRule = new DegradeRule("listQuestionVOByPage")
+        DegradeRule errorRateRule = new DegradeRule(SentinelConstant.listQuestionVOByPage)
                 .setGrade(CircuitBreakerStrategy.ERROR_RATIO.getType())
                 // 异常率大于 10%
                 .setCount(0.1)
