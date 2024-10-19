@@ -18,13 +18,13 @@ import javax.annotation.Resource;
 import javax.servlet.http.HttpServletRequest;
 
 /**
- * 权限校验 AOP
- *
+ * 权限校验 AOP（drop)
+ * 现采用sa-token鉴权
  * @author Samoyer
 
  */
-@Aspect
-@Component
+//@Aspect
+//@Component
 public class AuthInterceptor {
 
     @Resource
