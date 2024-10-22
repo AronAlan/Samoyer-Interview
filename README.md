@@ -186,5 +186,5 @@ java "-Dserver.port=8131" -jar sentinel-dashboard-1.8.6.jar
 4. Nacos
 5. Redis
 6. [Hotkey](https://gitee.com/jd-platform-opensource/hotkey)
-(修改各模块中的端口及信息，执行`dashboard/src/main/resources/sb.sql`,分别启动`work`和`dashboard`，)
+(修改各模块中的端口及信息，执行`dashboard/src/main/resources/sb.sql`,分别启动`work`和`dashboard`)
 7. 添加启动类`MainApplication`的JVM参数`-Dcsp.sentinel.dashboard.server=localhost:8131`
