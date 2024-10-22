@@ -36,10 +36,14 @@
 - 自定义错误码
 - 封装通用响应类
 - Swagger + Knife4j 接口文档
-- 自定义权限注解 + 全局校验
+- 自定义权限注解 + 全局校验（已废弃）
 - 全局跨域处理
 - 长整数丢失精度解决
 - 多环境配置
+- Sa-token权限校验 + 同端登录互斥
+- Nacos配置黑名单IP
+- Sentinel限流、熔断、降级
+- 基于Redis的分级反爬虫
 
 
 ## 业务功能
@@ -73,7 +77,7 @@
 - 合理分层
 
 
-## YML配置
+## 相关配置
 ### MySQL 数据库
 
 1）修改 `application.yml` 的数据库配置：
@@ -135,3 +139,52 @@ spring:
     username: root
     password: 123456
 ```
+### Nacos控制台配置黑名单IP
+```yaml
+blackIpList:
+- "1.1.1.1"
+- "2.2.2.2"
+```
+
+### Hotkey控制台配置热点规则
+```json
+[
+    {
+    "duration": 600,
+    "key": "bank_detail_",
+    "prefix": true,
+    "interval": 5,
+    "threshold": 10,
+    "desc": "热门题库缓存"
+    },
+    {
+    "duration": 600,
+    "key": "question_detail_",
+    "prefix": true,
+    "interval": 5,
+    "threshold": 10,
+    "desc": "热门题目缓存"
+    }
+]
+```
+
+### Sentinel
+cmd:
+```java
+java -Dserver.port=8131 -jar sentinel-dashboard-1.8.6.jar
+```
+powershell:
+```java
+java "-Dserver.port=8131" -jar sentinel-dashboard-1.8.6.jar
+```
+
+## 启动所需
+分别启动：
+1. MySQL
+2. Elasticsearch
+3. Etcd
+4. Nacos
+5. Redis
+6. [Hotkey](https://gitee.com/jd-platform-opensource/hotkey)
+(修改各模块中的端口及信息，执行dashboard/src/main/resources/sb.sql,分别启动work和dashboard，)
+7. 添加启动类`MainApplication`的JVM参数`-Dcsp.sentinel.dashboard.server=localhost:8131`
