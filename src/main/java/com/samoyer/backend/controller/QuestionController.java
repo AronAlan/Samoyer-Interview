@@ -174,6 +174,10 @@ public class QuestionController {
     public BaseResponse<QuestionVO> getQuestionVOById(long id, HttpServletRequest request) {
         ThrowUtils.throwIf(id <= 0, ErrorCode.PARAMS_ERROR);
 
+        User loginUser = userService.getLoginUser(request);
+        // 处理爬虫和告警
+        questionService.crawlerDetect(loginUser.getId());
+
         /* 热key缓存 */
         //生成key
         String key = "question_detail_" + id;

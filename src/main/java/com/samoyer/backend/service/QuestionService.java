@@ -17,7 +17,6 @@ import java.util.Set;
  * 题目服务
  *
  * @author Samoyer
-
  */
 public interface QuestionService extends IService<Question> {
 
@@ -25,7 +24,7 @@ public interface QuestionService extends IService<Question> {
      * 校验数据
      *
      * @param question
-     * @param add 对创建的数据进行校验
+     * @param add      对创建的数据进行校验
      */
     void validQuestion(Question question, boolean add);
 
@@ -36,7 +35,7 @@ public interface QuestionService extends IService<Question> {
      * @return
      */
     QueryWrapper<Question> getQueryWrapper(QuestionQueryRequest questionQueryRequest);
-    
+
     /**
      * 获取题目封装
      *
@@ -74,6 +73,7 @@ public interface QuestionService extends IService<Question> {
 
     /**
      * 从ES查询题目
+     *
      * @param questionQueryRequest
      * @return
      */
@@ -89,13 +89,21 @@ public interface QuestionService extends IService<Question> {
 
     /**
      * 避免长事务问题，将batchDeleteQuestions批量删除题目的操作独立出来
+     *
      * @param questionIdList
      * @param validQuestionsIdList
      */
     void batchDeleteQuestionsInner(List<Long> questionIdList, Set<Long> validQuestionsIdList);
 
-        /**
-         * 用于删除或增加时主动增量同步到ES
-         */
+    /**
+     * 用于删除或增加时主动增量同步到ES
+     */
     void incrementalEs();
+
+    /**
+     * 检测爬虫并告警或封号
+     *
+     * @param loginUserId
+     */
+    void crawlerDetect(long loginUserId);
 }

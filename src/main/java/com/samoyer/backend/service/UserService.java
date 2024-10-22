@@ -15,7 +15,6 @@ import java.util.List;
  * 用户服务
  *
  * @author Samoyer
-
  */
 public interface UserService extends IService<User> {
 
@@ -121,6 +120,7 @@ public interface UserService extends IService<User> {
 
     /**
      * 添加用户签到记录
+     *
      * @param userId
      * @return
      */
@@ -128,9 +128,11 @@ public interface UserService extends IService<User> {
 
     /**
      * 获取/查询 用户的签到记录
+     *
      * @param userId
      * @param year
      * @return
      */
-    List<Integer> getUserSignInRecord(long userId,Integer year);
+    List<Integer> getUserSignInRecord(long userId, Integer year);
+
 }

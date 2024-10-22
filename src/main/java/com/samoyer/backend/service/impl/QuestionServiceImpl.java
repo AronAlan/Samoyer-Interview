@@ -1,6 +1,8 @@
 package com.samoyer.backend.service.impl;
 
+import cn.dev33.satoken.stp.StpUtil;
 import cn.hutool.core.collection.CollUtil;
+import cn.hutool.core.date.DateUtil;
 import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
@@ -10,7 +12,9 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.samoyer.backend.common.ErrorCode;
 import com.samoyer.backend.constant.CommonConstant;
 import com.samoyer.backend.esdao.QuestionEsDao;
+import com.samoyer.backend.exception.BusinessException;
 import com.samoyer.backend.exception.ThrowUtils;
+import com.samoyer.backend.manager.CounterManager;
 import com.samoyer.backend.mapper.QuestionMapper;
 import com.samoyer.backend.model.dto.question.QuestionEsDTO;
 import com.samoyer.backend.model.dto.question.QuestionQueryRequest;
@@ -25,6 +29,7 @@ import com.samoyer.backend.service.QuestionBankQuestionService;
 import com.samoyer.backend.service.QuestionBankService;
 import com.samoyer.backend.service.QuestionService;
 import com.samoyer.backend.service.UserService;
+import com.samoyer.backend.utils.EmailUtils;
 import com.samoyer.backend.utils.SqlUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.ObjectUtils;
@@ -47,6 +52,7 @@ import org.springframework.transaction.annotation.Transactional;
 import javax.annotation.Resource;
 import javax.servlet.http.HttpServletRequest;
 import java.util.*;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 import static com.fasterxml.jackson.databind.type.LogicalType.Collection;
@@ -77,6 +83,9 @@ public class QuestionServiceImpl extends ServiceImpl<QuestionMapper, Question> i
 
     @Resource
     private QuestionEsDao questionEsDao;
+
+    @Resource
+    private CounterManager counterManager;
 
     /**
      * 校验数据
@@ -445,7 +454,7 @@ public class QuestionServiceImpl extends ServiceImpl<QuestionMapper, Question> i
             //使用事务处理每批次数据
             QuestionService questionService = (QuestionService) AopContext.currentProxy();
             //执行添加
-            questionService.batchDeleteQuestionsInner(subQuestionIdList,validQuestionsIdList);
+            questionService.batchDeleteQuestionsInner(subQuestionIdList, validQuestionsIdList);
         }
 
 
@@ -453,12 +462,13 @@ public class QuestionServiceImpl extends ServiceImpl<QuestionMapper, Question> i
 
     /**
      * 避免长事务问题，将batchDeleteQuestions批量删除题目的操作独立出来
+     *
      * @param questionIdList
      * @param validQuestionsIdList
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void batchDeleteQuestionsInner(List<Long> questionIdList,Set<Long> validQuestionsIdList) {
+    public void batchDeleteQuestionsInner(List<Long> questionIdList, Set<Long> validQuestionsIdList) {
         //删除题目
         boolean result = this.removeBatchByIds(questionIdList);
         ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR, "删除题目失败");
@@ -499,6 +509,44 @@ public class QuestionServiceImpl extends ServiceImpl<QuestionMapper, Question> i
             questionEsDao.saveAll(questionEsDTOList.subList(i, end));
         }
         log.info("增量同步到ES完成");
+    }
+
+    /**
+     * 检测爬虫并告警或封号
+     *
+     * @param loginUserId
+     */
+    @Override
+    public void crawlerDetect(long loginUserId) {
+        //调用多少次时告警
+        final int WARN_COUNT = 10;
+        //超过多少次时封号
+        final int BAN_COUNT = 20;
+        //key
+        String key = String.format("user:access:%s", loginUserId);
+        //一分钟内访问次数，redis中180秒过期
+        long count = counterManager.incrAndGetCounter(key, 1, TimeUnit.MINUTES, 180);
+        log.info("count: " + count);
+        //是否告警
+        String time = DateUtil.format(new Date(), "yyyy-MM-dd HH:mm");
+        if (count == WARN_COUNT + 1) {
+            //向管理员发送邮件告警通知
+            EmailUtils.sendEmailToAdmin(loginUserId, time, count, "爬虫检测-警告", "请及时处理");
+        }
+
+        //是否封号
+        if (count > BAN_COUNT) {
+            //所有设备都踢下线
+            StpUtil.kickout(loginUserId);
+            //封号
+            User user = new User();
+            user.setId(loginUserId);
+            user.setUserRole("ban");
+            userService.updateById(user);
+            //向管理员发送邮件封禁通知
+            EmailUtils.sendEmailToAdmin(loginUserId, time, count, "爬虫检测-封禁", "已被封禁");
+            throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "访问过于频繁，已被封号");
+        }
     }
 
 }
