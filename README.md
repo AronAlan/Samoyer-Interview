@@ -4,6 +4,8 @@
 
 >仅用于交流使用
 
+>上线版本（后续功能更新）：https://github.com/AronAlan/mianshixiong
+
 ### 主流框架 & 特性
 
 - Spring Boot 2.7.x
