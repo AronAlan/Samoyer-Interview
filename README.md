@@ -4,7 +4,7 @@
 
 >仅用于交流使用
 
->上线版本（后续功能更新）：https://github.com/AronAlan/mianshixiong
+>上线版本（后续功能更新）：https://github.com/AronAlan/mianshixiong （由于涉及某些个人敏感信息，懒的删除提交历史，上线版暂不开放）
 
 ### 主流框架 & 特性
 
